@@ -1,6 +1,6 @@
 ## Hermitian matrices
 
-type Hermitian{T<:Number} <: AbstractMatrix{T}
+immutable Hermitian{T<:Number} <: AbstractMatrix{T}
     S::Matrix{T}
     uplo::Char
 end
@@ -10,11 +10,8 @@ function Hermitian(S::Matrix, uplo::Symbol)
 end
 Hermitian(A::Matrix) = Hermitian(A, :U)
 
-function copy!(A::Hermitian, B::Hermitian)
-    copy!(A.S, B.S)
-    A.uplo = B.uplo
-    A
-end
+convert{T1,T2}(::Type{Hermitian{T1}},A::Hermitian{T2}) = Hermitian(convert(Matrix{T1},A.S),A.uplo)
+copy(A::Hermitian) = Hermitian(copy(A.S),A.uplo)
 size(A::Hermitian, args...) = size(A.S, args...)
 getindex(A::Hermitian, i::Integer, j::Integer) = (A.uplo == 'U') == (i < j) ? getindex(A.S, i, j) : conj(getindex(A.S, j, i))
 full(A::Hermitian) = copytri!(A.S, A.uplo, true)
@@ -28,11 +25,12 @@ similar(A::Hermitian, args...) = Hermitian(similar(A.S, args...), A.uplo)
 *(A::Hermitian, B::StridedMatrix) = *(full(A), B)
 *(A::StridedMatrix, B::Hermitian) = *(A, full(B))
 
-factorize!(A::Hermitian) = bkfact!(A.S, symbol(A.uplo), issym(A))
+factorize(A::Hermitian) = bkfact(A.S, symbol(A.uplo), issym(A))
 \(A::Hermitian, B::StridedVecOrMat) = \(bkfact(A.S, symbol(A.uplo), issym(A)), B)
 
 eigfact!{T<:BlasFloat}(A::Hermitian{T}) = Eigen(LAPACK.syevr!('V', 'A', A.uplo, A.S, 0.0, 0.0, 0, 0, -1.0)...)
-eigfact(A::Hermitian) = eigfact!(copy(A))
+eigfact{T<:BlasFloat}(A::Hermitian{T}) = eigfact!(copy(A))
+eigfact(A::Hermitian) = eigfact!(convert(Hermitian{promote_type(Float32,eltype(A))}, A))
 eigvals!{T<:BlasFloat}(A::Hermitian{T}, il::Int, ih::Int) = LAPACK.syevr!('N', 'I', A.uplo, A.S, 0.0, 0.0, il, ih, -1.0)[1]
 eigvals!{T<:BlasFloat}(A::Hermitian{T}, vl::Real, vh::Real) = LAPACK.syevr!('N', 'V', A.uplo, A.S, vl, vh, 0, 0, -1.0)[1]
 # eigvals!(A::Hermitian, args...) = eigvals!(float(A), args...)
@@ -44,7 +42,8 @@ function eigfact!{T<:BlasFloat}(A::Hermitian{T}, B::Hermitian{T})
     vals, vecs, _ = LAPACK.sygvd!(1, 'V', A.uplo, A.S, B.uplo == A.uplo ? B.S : B.S')
     GeneralizedEigen(vals, vecs)
 end
-eigfact(A::Hermitian, B::Hermitian) = eigfact!(copy(A), copy(B))
+eigfact{T<:BlasFloat}(A::Hermitian{T}, B::Hermitian{T}) = eigfact!(copy(A), copy(B))
+eigfact{TA,TB}(A::Hermitian{TA},B::Hermitian{TB}) = eigfact!(convert(Hermitian{promote_type(Float32,TA,TB)}, A), convert(Hermitian{promote_type(Float32,TA,TB)}, B))
 eigvals!{T<:BlasFloat}(A::Hermitian{T}, B::Hermitian{T}) = LAPACK.sygvd!(1, 'N', A.uplo, A.S, B.uplo == A.uplo ? B.S : B.S')[1]
 
 function expm(A::Hermitian)
@@ -52,15 +51,11 @@ function expm(A::Hermitian)
     scale(F[:vectors], exp(F[:values])) * F[:vectors]'
 end
 
-function sqrtm(A::Hermitian, cond::Bool=false)
+function sqrtm(A::Hermitian)
     F = eigfact(A)
     length(F[:values]) == 0 && return A
     vsqrt = sqrt(complex(F[:values]))
-    if all(imag(vsqrt) .== 0)
-        retmat = copytri!(scale(F[:vectors], real(vsqrt)) * F[:vectors]', 'U')
-    else
-        zc = complex(F[:vectors])
-        retmat = copytri!(scale(zc, vsqrt) * zc', 'U')
-    end
-    return cond ? (retmat, norm(vsqrt, Inf)^2/norm(F[:values], Inf)) : retmat
+    all(imag(vsqrt) .== 0) && return F[:vectors]*Diagonal(real(vsqrt))*F[:vectors]'
+    zc = complex(F[:vectors])
+    return zc*Diagonal(vsqrt)*zc'
 end

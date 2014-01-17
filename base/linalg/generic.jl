@@ -240,3 +240,66 @@ function axpy!{Ti<:Integer,Tj<:Integer}(alpha, x::AbstractArray, rx::AbstractArr
     y
 end
 
+# Elementary reflection similar to LAPACK. The reflector is not hermitian but ensures that tridiagolization of hermitian matrices become real.
+function elementaryLeft!(A::AbstractMatrix, row::Integer, col::Integer)
+    m, n = size(A)
+    col <= n || error("col cannot be larger than $(size(A,2))")
+    row >= col || error("col cannot be less than row")
+    @inbounds begin
+        ξ1 = A[row,col]
+        normu = abs2(ξ1)
+        for i = row+1:m
+            normu += abs2(A[i,col])
+        end
+        normu = sqrt(normu)
+        ν = copysign(normu,real(ξ1))
+        A[row,col] += ν
+        ξ1ν = ξ1 + ν
+        A[row,col] = -ν
+        for i = row+1:m
+            A[i,col] /= ξ1ν
+        end
+    end
+    conj(ξ1ν/ν)
+end
+function elementaryRight!(A::AbstractMatrix, row::Integer, col::Integer)
+    m, n = size(A)
+    col <= n || error("col cannot be larger than $(size(A,2))")
+    row <= col || error("col cannot be larger than row")
+    @inbounds begin
+        ξ1 = A[row,col]
+        normu = abs2(ξ1)
+        for i = col+1:n
+            normu += abs2(A[row,i])
+        end
+        normu = sqrt(normu)
+        ν = copysign(normu,real(ξ1))
+        A[row,col] += ν
+        ξ1ν = ξ1 + ν
+        A[row,col] = -ν
+        for i = col+1:n
+            A[row,i] /= ξ1ν
+        end
+    end
+    conj(ξ1ν/ν)
+end
+function elementaryRightTrapezoid!(A::AbstractMatrix, row::Integer)
+    m, n = size(A)
+    row <= m || error("row cannot be larger than $(size(A,1))")
+    @inbounds begin
+        ξ1 = A[row,row]
+        normu = abs2(A[row,row])
+        for i = m+1:n
+            normu += abs2(A[row,i])
+        end
+        normu = sqrt(normu)
+        ν = copysign(normu,real(ξ1))
+        A[row,row] += ν
+        ξ1ν = ξ1 + ν
+        A[row,row] = -ν
+        for i = m+1:n
+            A[row,i] /= ξ1ν
+        end
+    end
+    conj(ξ1ν/ν)
+end
